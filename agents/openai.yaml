@@ -1,0 +1,4 @@
+interface:
+  display_name: "ALMS LangGraph Agent"
+  short_description: "Build agents in your ALMS style"
+  default_prompt: "Use $alms-langgraph-agent to add a LangGraph/LangChain agent using my ALMS project structure."

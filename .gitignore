@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+
+# Local editor and OS noise
+.idea/
+.vscode/
+*.swp
+
+# Temporary files
+*.tmp
+*.log
