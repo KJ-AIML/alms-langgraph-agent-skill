@@ -2,7 +2,7 @@
 
 ALMS-style LangGraph and LangChain agent builder skill for AI coding agents.
 
-This skill captures KJ's optimized ALMS architecture for agentic FastAPI services. It uses `alms` as the canonical project structure and uses `asr-transcribe-masking-service` as lived implementation evidence for how the `/agents` layer works in practice.
+This skill captures KJ's optimized ALMS architecture for agentic FastAPI services. It uses `alms` as the canonical project structure and extracts reusable production patterns from real ALMS implementations without hardcoding one source repo or domain.
 
 ## Install
 
@@ -15,31 +15,36 @@ npx skills add KJ-AIML/alms-langgraph-agent-skill
 - Builds LangGraph/LangChain agent services in the ALMS style
 - Keeps FastAPI endpoints thin and pushes orchestration into usecases
 - Uses actions to lazily build and invoke compiled LangGraph workflows
-- Places agent code under `src/agents/` with managers, prompts, schemas, tools, and workflows
+- Places agent code under `src/agents/` with managers, prompts, schemas, tools, and feature-scoped workflows
 - Uses markdown prompt files through a `PromptManager`
 - Uses structured Pydantic outputs through an `AgentManager`
-- Preserves KJ's naming style for `process_*`, `build_*_workflow`, and `llm_call_*`
-- Adds scalable LangGraph guidance only when it fits the ALMS shape
+- Preserves KJ's naming style for `process_*`, `build_*_workflow`, workflow nodes, and action/usecase layers
+- Adds production guardrails: ledgers, exact approved memory, deterministic safe rules, retrieval-backed reasoning, coverage retry, conflict checks, human review, summary reconciliation, and status/display APIs
 
 ## Architecture Preference
 
 Treat `alms` as the optimized source of truth:
 
 ```text
-API Endpoint -> UseCase -> Action -> LangGraph Workflow -> Agent Manager / Prompt Manager
+API Endpoint -> UseCase -> Action -> LangGraph Workflow -> Agent Manager / Prompt Manager / Tools
 ```
 
-Treat `asr-transcribe-masking-service` as an early but working implementation to learn from:
+Extract these production implementation patterns when the target problem needs them:
 
-- `AgentManager`
-- `PromptManager`
-- `StateGraph` builders
-- `nodes.py`
-- structured schemas in `types.py`
-- action/usecase invocation patterns
-- batch, retry, and fan-out workflow examples
+- background mapping jobs
+- feature-scoped workflow package: `state.py`, `nodes.py`, `build.py`
+- `AgentManager` and `PromptManager`
+- structured output schemas
+- PageIndex/retrieval-backed reasoning
+- approved-memory lookup before LLM reasoning
+- safe DSL rule runner before memory and LLM reasoning
+- row coverage validation and held state
+- deterministic plus optional LLM conflict checks
+- summary aggregation and result reconciliation
+- human review queue and review decision APIs
+- dashboard/status/display/SSE endpoints
 
-When `alms` and ASR disagree, prefer `alms` for new projects.
+When `alms` and a production repo disagree, prefer the target repo's current shape for low-churn maintenance, and prefer `alms` for new projects.
 
 ## Project Structure
 
@@ -50,7 +55,8 @@ src/
   api/
     endpoints/
       v1/
-        process_<thing>.py
+        <feature>.py
+        schemas/
   execution/
     actions/
       process_<thing>_action.py
@@ -58,18 +64,20 @@ src/
       process_<thing>_usecase.py
   agents/
     agent_manager/
-      agent_manager.py
+      agent.py
     prompts/
       prompt_manager.py
       agents/
         agent_<thing>.md
     schemas/
-      types.py
+      <feature>.py
     tools/
-      tools.py
+      <feature>_tool.py
     workflows/
-      build.py
-      nodes.py
+      <feature>/
+        state.py
+        nodes.py
+        build.py
   providers/
     ai/
       langchain_model_loader.py
@@ -79,8 +87,8 @@ src/
 ## Usage Examples
 
 ```text
-User: "Add a transcript masking workflow in this ALMS repo"
--> Creates schemas, prompts, AgentManager registry, nodes, workflow builder, action, usecase, endpoint, and tests.
+User: "Add an auditable document classification workflow in this ALMS repo"
+-> Creates schemas, prompts, AgentManager registry, tools, workflow state/nodes/build, action, usecase, endpoints, status/display APIs, and tests.
 ```
 
 ```text
@@ -89,8 +97,8 @@ User: "Refactor this LangGraph agent to follow my ALMS style"
 ```
 
 ```text
-User: "Create a structured-output agent with tools"
--> Uses AgentManager with ToolStrategy, PromptManager markdown prompts, Pydantic result schemas, and ALMS naming.
+User: "Make this agent production-safe with memory and review"
+-> Adds exact approved memory, coverage validation, conflict reports, human review queue, and safe promotion path for deterministic rules.
 ```
 
 ## Files
