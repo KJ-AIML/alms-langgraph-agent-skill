@@ -10,6 +10,13 @@ This skill captures KJ's optimized ALMS architecture for agentic FastAPI service
 npx skills add KJ-AIML/alms-langgraph-agent-skill
 ```
 
+## Compatibility
+
+- Skill version: `0.2.1`
+- Compatible with: `alms >=0.2.1`
+
+Use this public skill for LangGraph/LangChain agent workflows. Use the bundled `.agents/skills/alms-dev` skill from the `alms` repo for normal backend changes such as endpoints, usecases, actions, repositories, providers, settings, middleware, tests, and docs.
+
 ## What It Does
 
 - Builds LangGraph/LangChain agent services in the ALMS style
@@ -45,6 +52,8 @@ Extract these production implementation patterns when the target problem needs t
 - dashboard/status/display/SSE endpoints
 
 When `alms` and a production repo disagree, prefer the target repo's current shape for low-churn maintenance, and prefer `alms` for new projects.
+
+If the target ALMS repo does not yet contain `src/agents/prompts/prompt_manager.py`, `src/agents/prompts/agents/`, `src/agents/schemas/`, or feature-scoped workflow folders, create that skeleton before adding production agent behavior.
 
 ## Project Structure
 
@@ -106,6 +115,7 @@ User: "Make this agent production-safe with memory and review"
 - `SKILL.md` - main skill instructions and trigger metadata
 - `references/alms-patterns.md` - detailed implementation patterns and code templates
 - `agents/openai.yaml` - optional UI metadata for compatible agents
+- `CHANGELOG.md` - compatibility and release notes
 
 ## License
 

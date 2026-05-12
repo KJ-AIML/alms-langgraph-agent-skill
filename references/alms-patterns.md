@@ -89,6 +89,8 @@ For small starters, a flat `src/agents/workflows/build.py` and `nodes.py` is acc
 
 Prefer the ALMS provider boundary for new or refactored projects: `src/providers/ai/langchain_model_loader.py`.
 
+If a starter repo is older than `alms` 0.2.1 and lacks `src/agents/prompts/prompt_manager.py`, `src/agents/prompts/agents/`, `src/agents/schemas/`, or feature-scoped workflow folders, add those skeleton directories before implementing production behavior.
+
 ## Production Feature Recipe
 
 To add a production agent workflow called `<thing>`:

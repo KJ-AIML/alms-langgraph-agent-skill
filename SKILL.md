@@ -1,6 +1,8 @@
 ---
 name: alms-langgraph-agent
-description: Build, refactor, review, or document Python FastAPI AI-agent services using KJ's optimized ALMS LangGraph/LangChain style. Use whenever work touches LangGraph workflows, LangChain structured-output agents, prompt managers, agent managers, AI tools, workflow state, action/usecase orchestration, background job APIs, human review loops, approved memory, deterministic rule hardening, or production reliability guardrails in an ALMS repo. Extract reusable patterns from the current repo and KJ's production ALMS style; do not hardcode one source repo or domain.
+description: Build or review ALMS Python FastAPI LangGraph/LangChain agent workflows with action/usecase orchestration, prompt managers, structured outputs, approved memory, human review loops, and production reliability guardrails.
+version: 0.2.1
+compatible_with: "alms >=0.2.1"
 ---
 
 # ALMS LangGraph Agent
