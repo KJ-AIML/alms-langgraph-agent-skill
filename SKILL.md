@@ -1,7 +1,7 @@
 ---
 name: alms-langgraph-agent
 description: Build or review ALMS Python FastAPI LangGraph/LangChain agent workflows with action/usecase orchestration, prompt managers, structured outputs, approved memory, human review loops, and production reliability guardrails.
-version: 0.2.1
+version: 0.3.0
 compatible_with: "alms >=0.2.1"
 ---
 
@@ -14,6 +14,47 @@ Treat `alms` as the canonical architecture. Treat production ALMS implementation
 Do not copy a source repo's domain, filenames, docs paths, examples, endpoint names, or business nouns unless the target repo already uses them. Extract the mechanism, then adapt it to the target business problem.
 
 For detailed conventions and templates, read [references/alms-patterns.md](references/alms-patterns.md) when adding or changing code.
+
+## Do Not Overbuild
+
+Use the minimum architecture the task actually requires.
+
+For a simple task, a thin action calling a structured agent is enough:
+
+```text
+Endpoint -> UseCase -> Action -> Structured Agent
+```
+
+For production tasks that need auditability, long-running jobs, or conflict checks, use the full workflow:
+
+```text
+Endpoint -> UseCase -> Action -> LangGraph Workflow -> Nodes / Tools / Agents
+```
+
+Only add the production workflow when the task involves:
+
+- batch processing or long-running jobs
+- auditability or traceable decisions
+- source anchoring the model must not override
+- expensive recomputation worth caching in approved memory
+- human review
+- conflict detection
+- approved memory lookup
+- deterministic rule promotion
+- status or display APIs
+- coverage validation that catches missing or duplicate output
+
+| Task Type | Pattern | Ledger | Memory | Human Review | Status API |
+|---|---|:---:|:---:|:---:|:---:|
+| Simple Q&A | Endpoint → UseCase → Action → Agent | — | — | — | — |
+| One-step extraction | Endpoint → UseCase → Action → Structured Agent | maybe | — | — | — |
+| Batch classification | UseCase → Action → Workflow | yes | maybe | maybe | yes |
+| Auditable decision | Production Workflow | yes | yes | yes | yes |
+| Expensive repeated decision | Production Workflow + Memory | yes | yes | maybe | yes |
+| Repeated proof → safe rule | Production Workflow + Safe Rules | yes | yes | yes | yes |
+| Long-running background job | Process + Status + Display APIs | yes | maybe | maybe | yes |
+
+Do not add ledger, approved memory, conflict checks, or human review unless the task type in this table says to.
 
 ## Core Workflow
 
@@ -137,6 +178,57 @@ self.model.with_structured_output(OutputSchema)
 
 For tools plus structured output, use a tool-aware agent only when the tool has deterministic value. Otherwise, retrieve tool context in the node, pass it into the prompt, and keep the LLM output schema simple.
 
+## Factory Compatibility
+
+ALMS may use function-based agent factories alongside or instead of `AgentManager`.
+
+```python
+@lru_cache(maxsize=1)
+def create_sample_agent() -> Any:
+    """Build the sample agent lazily so non-agent routes do not depend on AI setup."""
+    ...
+```
+
+Do not blindly replace existing factories.
+
+- If the repo uses `create_*_agent()` factories, keep them for backward compatibility.
+- Use `AgentManager` for new production structured-output workflows.
+- Add `AgentManager` alongside existing factories if both styles are needed.
+- Refactor old factories to `AgentManager` only when explicitly requested.
+
+## Future Domain-Module Compatibility
+
+ALMS currently uses a layer-first directory structure:
+
+```text
+src/api/endpoints/v1/<feature>.py
+src/execution/usecases/<feature>_usecase.py
+src/execution/actions/<feature>_action.py
+src/agents/workflows/<feature>/
+```
+
+A future ALMS version may support a domain-module structure:
+
+```text
+src/modules/<feature>/
+  api.py
+  schemas.py
+  usecases.py
+  actions.py
+  workflows/
+    state.py
+    nodes.py
+    build.py
+```
+
+The dependency flow remains the same regardless of directory structure:
+
+```text
+API -> UseCase -> Action -> Workflow / Agent / Provider
+```
+
+When working in a repo that has not migrated, keep the layer-first structure. Do not reorganize into domain modules unless explicitly requested.
+
 ## Run And Verify
 
 Prefer the repo's existing commands. Common ALMS commands are:
@@ -159,3 +251,34 @@ For production agent workflows, also verify:
 - Human review paths persist enough evidence.
 - A second run can hit approved memory or code rules only when exact coverage exists.
 - Status/display APIs show `completed`, `human_review`, and `failed` clearly.
+
+## Final Response Format
+
+After any changes, report in this format:
+
+```text
+## Summary
+What changed and why.
+
+## Files Changed
+List each file and the purpose of the change.
+
+## Architecture Impact
+How the change affects ALMS boundaries:
+API, UseCase, Action, Agent/Workflow, Provider, Database, Observability, Config.
+
+## Verification
+Commands run, for example:
+- uv sync
+- uv run pytest src/tests
+- uv run ruff check src
+- uv run ruff format src
+
+If a command was not run, say so clearly.
+
+## Known Limitations
+Incomplete work, assumptions, or follow-up risks.
+
+## Next Recommended Step
+One clear next step.
+```

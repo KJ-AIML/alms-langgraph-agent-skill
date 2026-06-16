@@ -6,6 +6,19 @@ When the target repo already has a local pattern, follow it unless changing it c
 
 Do not turn one source repo's domain concepts into generic rules. Use real implementations as examples of the deeper mechanism, then adapt names, paths, prompts, schemas, endpoints, and tests to the target repo.
 
+## Do Not Overbuild
+
+Before adding workflow state, ledger, memory, or review, check which row the task falls under:
+
+| Task Type | Pattern | Ledger | Memory | Human Review |
+|---|---|:---:|:---:|:---:|
+| Simple Q&A | Endpoint → Action → Agent | — | — | — |
+| One-step extraction | Endpoint → Action → Structured Agent | maybe | — | — |
+| Batch or long-running | Endpoint → Action → LangGraph Workflow | yes | maybe | maybe |
+| Auditable production decision | Full Production Workflow | yes | yes | yes |
+
+The production feature recipe below applies to the full production workflow. Scale back for simpler tasks by removing what the table row does not require.
+
 ## Mental Model
 
 Use this direction:
@@ -72,6 +85,8 @@ src/
         build.py
   providers/
     ai/
+      base.py
+      factory.py
       langchain_model_loader.py
   database/
     connection.py
@@ -87,7 +102,7 @@ src/
 
 For small starters, a flat `src/agents/workflows/build.py` and `nodes.py` is acceptable. For real production workflows, use a feature folder like `src/agents/workflows/mapping/` so state, nodes, and graph wiring stay navigable.
 
-Prefer the ALMS provider boundary for new or refactored projects: `src/providers/ai/langchain_model_loader.py`.
+Prefer the ALMS provider boundary for new or refactored projects: use `get_ai_provider()` from `src/providers/ai/factory.py`. This returns a configured `AIModelProvider`. Inject models through `provider.get_chat_model(tier)` rather than instantiating `LangchainModelLoader` directly. This keeps nodes and agents vendor-neutral — provider selection stays in settings, not in agent code.
 
 If a starter repo is older than `alms` 0.2.1 and lacks `src/agents/prompts/prompt_manager.py`, `src/agents/prompts/agents/`, `src/agents/schemas/`, or feature-scoped workflow folders, add those skeleton directories before implementing production behavior.
 
@@ -355,6 +370,10 @@ class AgentManager:
 
 Use `with_structured_output` for normal schema-bound LLM steps. Use tool-aware agents only when the model must dynamically call deterministic tools; otherwise, call tools in the node and pass retrieved context into the prompt.
 
+### Factory Compatibility
+
+ALMS may use function-based `create_*_agent()` factories alongside `AgentManager`. Do not replace existing factories without being asked. Use `AgentManager` for new production workflows; keep `create_*_agent()` in repos that already have them.
+
 ## PromptManager Pattern
 
 Store prompts as markdown files and lazy-load them with properties. This keeps prompts editable without touching node code.
@@ -470,28 +489,48 @@ When conflicts or held items exist, final status should become `human_review` un
 
 ## Model Loader Pattern
 
-Centralize model setup in a provider.
+Centralize model setup through the provider abstraction. In ALMS v0.3.0 the preferred entry point is `get_ai_provider()`:
 
 ```python
-class LangchainModelLoader:
-    def init_model_openai_reasoning(self, temperature: float | None = None, **kwargs):
-        return ChatOpenAI(
-            model=settings.OPENAI_MODEL_REASONING,
-            temperature=settings.MODEL_TEMPERATURE_DEFAULT
-            if temperature is None
-            else temperature,
-            max_retries=settings.MODEL_MAX_RETRIES,
-            timeout=settings.MODEL_TIMEOUT_SECONDS,
-            api_key=settings.OPENAI_API_KEY or None,
-            **kwargs,
-        )
+# src/providers/ai/factory.py
+from src.providers.ai.langchain_model_loader import LangchainModelLoader
+
+def get_ai_provider() -> AIModelProvider:
+    # ponytail: single provider; add google/anthropic branches here when MODEL_PROVIDER != "openai"
+    return LangchainModelLoader()
 ```
 
-Expose a helper such as `get_llm("reasoning")` when the repo already uses it. Keep provider switching in `.env` and `settings`, not scattered through nodes.
+```python
+# src/providers/ai/base.py
+from abc import ABC, abstractmethod
+from typing import Any
+
+class AIModelProvider(ABC):
+    @abstractmethod
+    def get_chat_model(self, tier: str = "basic", **kwargs: Any) -> Any:
+        """Return a configured chat model. tier: 'basic' or 'reasoning'."""
+```
+
+```python
+# In agent or node code — vendor-neutral
+from src.providers.ai.factory import get_ai_provider
+
+model = get_ai_provider().get_chat_model("basic")
+reasoning_model = get_ai_provider().get_chat_model("reasoning")
+```
+
+`LangchainModelLoader` implements `AIModelProvider` and supports `get_chat_model(tier)` — `"basic"` calls `init_model_openai_basic`, `"reasoning"` calls `init_model_openai_reasoning`. Call `get_ai_provider()` in lazy-loaded properties so non-AI routes do not depend on AI setup.
+
+If the repo exposes a `get_llm("reasoning")` helper that wraps the same loader, prefer it for backward compatibility with existing nodes.
+
+> **Google / Anthropic providers are deferred.** The `MODEL_PROVIDER` setting is the switch point in `factory.py`, but only `openai` is implemented. Do not tell the user that Google or Anthropic providers exist unless the repo already has them.
 
 Common settings for production agent workflows:
 
-- `MODEL_PROVIDER`
+- `AI_ENABLED` — must be `True` to activate AI routes; gates production key validation
+- `DATABASE_ENABLED` — controls readiness check; set `False` to disable DB dependency
+- `REDIS_ENABLED` — controls Redis dependency; set `False` if Redis is not in use
+- `MODEL_PROVIDER` — provider selection (currently `openai` only)
 - `OPENAI_API_KEY`
 - `OPENAI_MODEL_BASIC`
 - `OPENAI_MODEL_REASONING`

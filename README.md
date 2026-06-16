@@ -12,7 +12,7 @@ npx skills add KJ-AIML/alms-langgraph-agent-skill
 
 ## Compatibility
 
-- Skill version: `0.2.1`
+- Skill version: `0.3.0`
 - Compatible with: `alms >=0.2.1`
 
 Use this public skill for LangGraph/LangChain agent workflows. Use the bundled `.agents/skills/alms-dev` skill from the `alms` repo for normal backend changes such as endpoints, usecases, actions, repositories, providers, settings, middleware, tests, and docs.
@@ -30,11 +30,19 @@ Use this public skill for LangGraph/LangChain agent workflows. Use the bundled `
 
 ## Architecture Preference
 
-Treat `alms` as the optimized source of truth:
+Treat `alms` as the optimized source of truth. For simple tasks, a short chain is enough:
+
+```text
+API Endpoint -> UseCase -> Action -> Structured Agent
+```
+
+For production workflows that require state, auditability, long-running jobs, or multi-step reasoning:
 
 ```text
 API Endpoint -> UseCase -> Action -> LangGraph Workflow -> Agent Manager / Prompt Manager / Tools
 ```
+
+See `SKILL.md` "Do Not Overbuild" for the full decision table on when to use each path.
 
 Extract these production implementation patterns when the target problem needs them:
 
@@ -89,6 +97,8 @@ src/
         build.py
   providers/
     ai/
+      base.py
+      factory.py
       langchain_model_loader.py
   config/
 ```
