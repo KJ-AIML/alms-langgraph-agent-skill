@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased (0.4.0)
+
+- Skill is now profile-aware: reads `[tool.alms]` from `pyproject.toml` before generating code.
+- Added "Profile / Capability Contract" section in SKILL.md with capability rules.
+- Updated "Core Workflow" to start with profile inspection and capability-aware directory scanning.
+- Updated "Do Not Overbuild" to include capability-based constraints.
+- Made "Project Shape" section in references/alms-patterns.md conditional on active capabilities.
+- Added capability gates to all production workflow recipes in references/alms-patterns.md.
+- Updated "Run And Verify" with profile-specific verification commands.
+- Added "Profile Impact" field to Final Response Format.
+- Bumped version to `0.4.0`. Compatible with `alms >=0.3.0`.
+- Backward compatible: `full` profile preserves all v0.3.0 behaviour.
+
 ## 0.3.0 - 2026-06-16
 
 - Added `Do Not Overbuild` section with Simple Agent vs Production Workflow decision table.

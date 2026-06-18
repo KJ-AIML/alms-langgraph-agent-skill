@@ -1,4 +1,4 @@
 interface:
   display_name: "ALMS LangGraph Agent"
-  short_description: "Build production ALMS LangGraph agents"
-  default_prompt: "Use $alms-langgraph-agent to add a production-ready LangGraph/LangChain agent using my ALMS project structure and generalized production reliability patterns."
+  short_description: "Build production ALMS LangGraph agents with profile-aware capability gating"
+  default_prompt: "Use $alms-langgraph-agent to add a production-ready LangGraph/LangChain agent using my ALMS project structure, respecting the active profile in [tool.alms]."

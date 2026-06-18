@@ -4,35 +4,36 @@ These conventions are anchored in `alms`, which is the optimized target architec
 
 When the target repo already has a local pattern, follow it unless changing it clearly improves correctness. Use `alms` for the base structure and use production evidence for guardrails, not for copying repo-specific names or domain concepts.
 
-Do not turn one source repo's domain concepts into generic rules. Use real implementations as examples of the deeper mechanism, then adapt names, paths, prompts, schemas, endpoints, and tests to the target repo.
+Do not turn one source repo''s domain concepts into generic rules. Use real implementations as examples of the deeper mechanism, then adapt names, paths, prompts, schemas, endpoints, and tests to the target repo.
+
+**Always read `[tool.alms]` from `pyproject.toml` before applying any pattern.** The active capabilities determine which sections of this reference apply. See `SKILL.md` "Profile / Capability Contract" for the full rules.
 
 ## Do Not Overbuild
 
-Before adding workflow state, ledger, memory, or review, check which row the task falls under:
+Before adding workflow state, ledger, memory, or review, check which row the task falls under AND whether the required capabilities are enabled:
 
-| Task Type | Pattern | Ledger | Memory | Human Review |
-|---|---|:---:|:---:|:---:|
-| Simple Q&A | Endpoint → Action → Agent | — | — | — |
-| One-step extraction | Endpoint → Action → Structured Agent | maybe | — | — |
-| Batch or long-running | Endpoint → Action → LangGraph Workflow | yes | maybe | maybe |
-| Auditable production decision | Full Production Workflow | yes | yes | yes |
+| Task Type | Pattern | Needs langgraph? | Ledger | Memory | Human Review |
+|---|---|:---:|:---:|:---:|:---:|
+| Simple Q&A | Endpoint -> Action -> Agent | No | — | — | — |
+| One-step extraction | Endpoint -> Action -> Structured Agent | No | maybe | — | — |
+| Batch or long-running | Endpoint -> Action -> LangGraph Workflow | Yes | yes | maybe | maybe |
+| Auditable production decision | Full Production Workflow | Yes | yes | yes | yes |
 
-The production feature recipe below applies to the full production workflow. Scale back for simpler tasks by removing what the table row does not require.
+The production feature recipe below applies to the full production workflow. Scale back for simpler tasks by removing what the table row does not require. **Skip the recipe entirely if `langgraph` is not enabled.**
 
 ## Mental Model
 
-Use this direction:
+Use this direction (adapted to active capabilities):
 
 ```text
 API endpoint
 -> Execution usecase
 -> Execution action
--> LangGraph workflow
--> Nodes
--> AgentManager / PromptManager / Tools / Providers
+-> (if langgraph) LangGraph workflow -> Nodes -> AgentManager / PromptManager / Tools / Providers
+-> (if llm only) Structured Agent -> AgentManager / PromptManager / Provider
 ```
 
-For simple work, the chain can be short. For production decisions, add a reliability ladder around the model:
+For simple work, the chain can be short. For production decisions with `langgraph`, add a reliability ladder around the model:
 
 ```text
 preprocess ledger
@@ -50,7 +51,9 @@ The central lesson is that the LLM is one decision step inside an auditable syst
 
 ## Project Shape
 
-Use this structure for agentic FastAPI services:
+The project structure depends on which capabilities are active.
+
+### Always present (core-api and all profiles)
 
 ```text
 src/
@@ -60,13 +63,35 @@ src/
       v1/
         dependencies.py
         routers.py
+        health.py
         schemas/
         <feature>.py
+    middlewares/
+      error_handler.py
+      logging.py
+      security.py
+    router/
+      routers.py
   execution/
     actions/
-      process_<thing>_action.py
+      <feature>_action.py
     usecases/
-      process_<thing>_usecase.py
+      <feature>_usecase.py
+  config/
+    settings.py
+    logs_config.py
+  core/
+    exceptions.py
+  tests/
+    conftest.py
+    v1/
+      test_health.py
+```
+
+### When `llm` capability is enabled
+
+```text
+src/
   agents/
     agent_manager/
       agent.py or agent_manager.py
@@ -76,6 +101,18 @@ src/
         agent_<thing>.md
     schemas/
       <feature>.py
+  providers/
+    ai/
+      base.py
+      factory.py
+      langchain_model_loader.py
+```
+
+### When `langgraph` capability is enabled (adds to llm)
+
+```text
+src/
+  agents/
     tools/
       <feature>_tool.py
     workflows/
@@ -83,53 +120,75 @@ src/
         state.py
         nodes.py
         build.py
-  providers/
-    ai/
-      base.py
-      factory.py
-      langchain_model_loader.py
+```
+
+### When `database` capability is enabled
+
+```text
+src/
   database/
     connection.py
     models/
     repositories/
-  config/
-    settings.py
-    logs_config.py
-  core/
-  utils/
-  tests/
+      base.py
+```
+
+### When `observability` capability is enabled
+
+```text
+src/
+  observability/
+    __init__.py
+    metrics.py
+    tracing.py
+  api/
+    endpoints/
+      v1/
+        metrics.py
+    middlewares/
+      observability.py
+```
+
+### When `redis` capability is enabled
+
+```text
+src/
+  providers/
+    cache/
 ```
 
 For small starters, a flat `src/agents/workflows/build.py` and `nodes.py` is acceptable. For real production workflows, use a feature folder like `src/agents/workflows/mapping/` so state, nodes, and graph wiring stay navigable.
 
 Prefer the ALMS provider boundary for new or refactored projects: use `get_ai_provider()` from `src/providers/ai/factory.py`. This returns a configured `AIModelProvider`. Inject models through `provider.get_chat_model(tier)` rather than instantiating `LangchainModelLoader` directly. This keeps nodes and agents vendor-neutral — provider selection stays in settings, not in agent code.
 
-If a starter repo is older than `alms` 0.2.1 and lacks `src/agents/prompts/prompt_manager.py`, `src/agents/prompts/agents/`, `src/agents/schemas/`, or feature-scoped workflow folders, add those skeleton directories before implementing production behavior.
+If a starter repo is older than `alms` 0.3.0 and lacks `src/agents/prompts/prompt_manager.py`, `src/agents/prompts/agents/`, `src/agents/schemas/`, or feature-scoped workflow folders, add those skeleton directories before implementing production behavior **only if the `llm` capability is enabled**.
 
 ## Production Feature Recipe
 
+> **Only use this recipe when `langgraph` is enabled.** For `llm-agent` without `langgraph`, skip steps 7, 8 (workflow state/nodes/build). For `core-api`, skip steps 5-11 entirely (use plain usecase/action).
+
 To add a production agent workflow called `<thing>`:
 
-1. Inspect existing docs, rules, entrypoints, and layer patterns; do not assume a fixed documentation filename exists.
+1. Inspect existing docs, rules, `[tool.alms]`, entrypoints, and layer patterns; do not assume a fixed documentation filename exists.
 2. Define endpoint request/response schemas in `src/api/endpoints/v1/schemas/<thing>.py` or locally for tiny endpoints.
 3. Add an endpoint in `src/api/endpoints/v1/<thing>.py`.
-4. Add or reuse dependencies in `src/api/endpoints/v1/dependencies.py`.
+4. Add or reuse dependencies in `src/api/endpoints/v1/dependencies.py`. **Guard AI/database imports with try/except ImportError if the capability is optional.**
 5. Add a usecase that owns job lifecycle, orchestration, status/display payloads, and failure recording.
-6. Add an action that lazily builds and invokes the compiled workflow.
-7. Add a workflow package: `src/agents/workflows/<thing>/state.py`, `nodes.py`, `build.py`.
-8. Add Pydantic structured output schemas under `src/agents/schemas/<thing>.py`.
-9. Add prompt markdown files under `src/agents/prompts/agents/`.
-10. Register agents in `AgentManager` and prompts in `PromptManager`.
-11. Add tools for deterministic lookups, retrieval, memory, review queues, or rule runners.
+6. Add an action that lazily builds and invokes the compiled workflow (or calls the agent directly if no langgraph).
+7. **(langgraph only)** Add a workflow package: `src/agents/workflows/<thing>/state.py`, `nodes.py`, `build.py`.
+8. **(llm only)** Add Pydantic structured output schemas under `src/agents/schemas/<thing>.py`.
+9. **(llm only)** Add prompt markdown files under `src/agents/prompts/agents/`.
+10. **(llm only)** Register agents in `AgentManager` and prompts in `PromptManager`.
+11. **(llm or langgraph)** Add tools for deterministic lookups, retrieval, memory, review queues, or rule runners.
 12. Register routers in `src/api/endpoints/v1/routers.py`.
-13. Add tests for endpoint, usecase/action, workflow construction, and critical node behavior.
+13. Add tests for endpoint, usecase/action, workflow construction (langgraph only), and critical node behavior.
 14. Update docs when public API shape, setup, architecture, or workflow behavior changes.
 
 ## Endpoint Pattern
 
 Endpoints should own HTTP shape only: request validation, dependency injection, background task enqueueing, response envelope, and route docs. They should not call LangGraph, tools, repositories, or model loaders directly.
 
-For long-running jobs, prefer:
+For long-running jobs **(requires `langgraph`)**, prefer:
 
 ```python
 @router.post("/thing/process", response_model=AppResponse)
@@ -205,7 +264,7 @@ Usecases should read like the business process. Move implementation details into
 
 ## Action Pattern
 
-Actions execute one discrete operation. For LangGraph work, an action lazily builds and caches the workflow, then normalizes the return shape.
+Actions execute one discrete operation. For LangGraph work **(requires `langgraph`)**, an action lazily builds and caches the workflow, then normalizes the return shape.
 
 ```python
 class ProcessThingAction:
@@ -236,7 +295,9 @@ Actions should not know HTTP response details.
 
 ## Workflow State Pattern
 
-Use `TypedDict` for workflow state. Keep it explicit enough that a future developer can see the system's audit contract.
+(Requires `langgraph` capability.)
+
+Use `TypedDict` for workflow state. Keep it explicit enough that a future developer can see the system''s audit contract.
 
 ```python
 class ThingWorkflowState(TypedDict, total=False):
@@ -259,6 +320,8 @@ class ThingWorkflowState(TypedDict, total=False):
 Prefer state keys that match business reports, not internal helper names.
 
 ## Workflow Build Pattern
+
+(Requires `langgraph` capability.)
 
 Keep graph factories in `src/agents/workflows/<feature>/build.py`. Compile and return the workflow; do not invoke it here.
 
@@ -292,6 +355,8 @@ Sequential edges are fine when nodes know how to no-op after a successful fast p
 
 ## Ledger And Coverage Pattern
 
+(Requires `langgraph` capability.)
+
 Use a ledger when each input item must be accounted for. This is the key production pattern for agent workflows where silent loss is unacceptable.
 
 The ledger should track:
@@ -318,6 +383,8 @@ Do not let an LLM output silently replace source fields such as source category,
 
 ## Node Pattern
 
+(Requires `langgraph` capability.)
+
 Nodes should perform one workflow step and return partial state. They may call tools, structured agents, or pure helpers, but they should not contain API or usecase logic.
 
 LLM node shape:
@@ -342,6 +409,8 @@ Production node rules:
 - Keep deterministic conflict checks authoritative. Optional LLM conflict checks can add evidence, not erase deterministic conflicts.
 
 ## AgentManager Pattern
+
+(Requires `llm` capability.)
 
 Keep model creation and structured agents out of nodes. Use one manager that lazy-loads the model and caches agents.
 
@@ -376,6 +445,8 @@ ALMS may use function-based `create_*_agent()` factories alongside `AgentManager
 
 ## PromptManager Pattern
 
+(Requires `llm` capability.)
+
 Store prompts as markdown files and lazy-load them with properties. This keeps prompts editable without touching node code.
 
 ```python
@@ -402,6 +473,8 @@ Prompts should state the output contract and safety boundaries. For source-ancho
 
 ## Schema Pattern
 
+(Requires `llm` capability for structured LLM outputs.)
+
 Use Pydantic for structured LLM outputs and endpoint request models. Use `TypedDict` for graph state.
 
 For production decision workflows, define separate schemas for:
@@ -416,6 +489,8 @@ For production decision workflows, define separate schemas for:
 Keep LLM output schemas strict enough to validate behavior, but not so clever that normal responses fail because of incidental formatting.
 
 ## Tool Patterns
+
+(Requires `llm` or `langgraph` capability.)
 
 Tools are deterministic adapters around capabilities the workflow needs.
 
@@ -436,7 +511,7 @@ Retrieval tool:
 - supports deterministic fallback for tests and smoke runs
 - keeps retrieval config in `settings`
 
-Human review queue tool:
+Human review queue tool **(requires `database`)**:
 
 - persists held chunks, conflicts, low-confidence rows, row mappings, summaries, totals, and evidence
 - upserts by stable job/entity/review type when reruns happen
@@ -450,6 +525,8 @@ Rule DSL runner:
 - never executes arbitrary generated Python in production
 
 ## Approved Memory And Rule Hardening
+
+(Requires `langgraph` capability.)
 
 Use this promotion path:
 
@@ -473,6 +550,8 @@ Guardrails:
 
 ## Conflict And Summary Pattern
 
+(Requires `langgraph` capability.)
+
 Conflict checks should catch issues the row-level model can miss:
 
 - held chunks/items
@@ -488,6 +567,8 @@ Summary aggregation should group the final row/item mappings into the shape the 
 When conflicts or held items exist, final status should become `human_review` unless the repo has a more specific status taxonomy.
 
 ## Model Loader Pattern
+
+(Requires `llm` capability.)
 
 Centralize model setup through the provider abstraction. In ALMS v0.3.0 the preferred entry point is `get_ai_provider()`:
 
@@ -508,7 +589,7 @@ from typing import Any
 class AIModelProvider(ABC):
     @abstractmethod
     def get_chat_model(self, tier: str = "basic", **kwargs: Any) -> Any:
-        """Return a configured chat model. tier: 'basic' or 'reasoning'."""
+        """Return a configured chat model. tier: ''basic'' or ''reasoning''."""
 ```
 
 ```python
@@ -545,6 +626,8 @@ Common settings for production agent workflows:
 
 ## Status And Display APIs
 
+(Requires `langgraph` capability.)
+
 Production workflows usually need more than one endpoint:
 
 - `process`: creates the job and starts work
@@ -573,14 +656,15 @@ timestamps
 
 ## Tests And Verification
 
-Prefer focused tests by layer:
+Prefer focused tests by layer. Only test layers that exist in the current profile:
 
 - endpoint test: request validation, response envelope, background enqueue/status
 - usecase test: job lifecycle, status mapping, clean failure behavior
-- action test: workflow invocation and result normalization
-- workflow test: graph compiles and minimal payload reaches final output
-- node test: coverage validation, conflict detection, memory hit/miss, rule match/mismatch
-- tool test: signature hashing, safe DSL matching, review queue persistence
+- action test: workflow invocation and result normalization **(langgraph only)**
+- workflow test: graph compiles and minimal payload reaches final output **(langgraph only)**
+- node test: coverage validation, conflict detection, memory hit/miss, rule match/mismatch **(langgraph only)**
+- tool test: signature hashing, safe DSL matching, review queue persistence **(llm or langgraph)**
+- repository test: CRUD operations **(database only)**
 
 Run:
 
@@ -590,7 +674,7 @@ uv run pytest src/tests/v1/test_<thing>.py -v
 uv run ruff check src
 ```
 
-For production agent workflows, add a smoke scenario that proves:
+For production agent workflows **(langgraph only)**, add a smoke scenario that proves:
 
 - input count equals output count
 - all outputs have source ids and required result fields

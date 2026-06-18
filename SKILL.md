@@ -1,8 +1,8 @@
 ---
 name: alms-langgraph-agent
 description: Build or review ALMS Python FastAPI LangGraph/LangChain agent workflows with action/usecase orchestration, prompt managers, structured outputs, approved memory, human review loops, and production reliability guardrails.
-version: 0.3.0
-compatible_with: "alms >=0.2.1"
+version: 0.4.0
+compatible_with: "alms >=0.3.0"
 ---
 
 # ALMS LangGraph Agent
@@ -11,27 +11,69 @@ Use this skill to build agentic FastAPI services in the optimized ALMS style: AP
 
 Treat `alms` as the canonical architecture. Treat production ALMS implementations as evidence for reusable patterns: long-running jobs, item-level ledgers, deterministic fast paths, approved memory, retrieval-backed reasoning, conflict checks, human review, rule hardening, dashboard/status APIs, and clean failure handling.
 
-Do not copy a source repo's domain, filenames, docs paths, examples, endpoint names, or business nouns unless the target repo already uses them. Extract the mechanism, then adapt it to the target business problem.
+Do not copy a source repo''s domain, filenames, docs paths, examples, endpoint names, or business nouns unless the target repo already uses them. Extract the mechanism, then adapt it to the target business problem.
 
 For detailed conventions and templates, read [references/alms-patterns.md](references/alms-patterns.md) when adding or changing code.
 
+## Profile / Capability Contract
+
+**Always read `[tool.alms]` from `pyproject.toml` before adding or changing code.**
+
+ALMS projects declare their active profile and capabilities in `pyproject.toml`:
+
+```toml
+[tool.alms]
+profile = "core-api"
+capabilities = ["runtime_auth", "tests"]
+```
+
+The skill must honour these constraints. If `[tool.alms]` is missing, infer conservatively by inspecting what already exists:
+
+- If `src/agents/workflows/` has feature folders, treat as `workflow-agent` or `full`.
+- If `src/providers/ai/` exists, treat as at least `llm-agent`.
+- If `src/database/` exists, treat as at least `db-agent`.
+- Otherwise treat as `core-api`.
+- **Never assume `full` unless clearly indicated.**
+
+### Profile rules
+
+| Capability | Allowed | Forbidden without this capability |
+|---|---|---|
+| (always) | FastAPI endpoints, Pydantic schemas, AppResponse, usecases, actions, runtime auth, health endpoints, tests | — |
+| `llm` | Simple structured agents, PromptManager, AgentManager, provider/AI model loader, sample agent endpoint | LangChain/OpenAI imports |
+| `langgraph` | LangGraph workflows (state/nodes/build), workflow compile tests | `from langgraph` imports; `StateGraph` usage |
+| `database` | SQLAlchemy repos, async sessions, Alembic, DB readiness in health | `from sqlalchemy` imports; `from src.database` imports |
+| `redis` | Redis cache provider | `import redis` |
+| `observability` | Metrics endpoint, tracing setup, observability middleware, Prometheus/OpenTelemetry | `from opentelemetry` or `from prometheus_client` imports |
+| `scalar_docs` | Scalar API docs at `/docs` | `from scalar_fastapi` imports |
+| `docker` | Dockerfile, docker-compose | — |
+| `ci` | GitHub Actions workflows | — |
+
+### Constraint enforcement
+
+- **Do not add imports that require optional extras** unless the capability is present.
+- **Do not create folders** under `src/agents/`, `src/providers/ai/`, `src/database/`, or `src/observability/` unless the matching capability is enabled.
+- **Do not register routers** for disabled capabilities (e.g. no `/metrics` route without `observability`).
+- **Do not make tests import optional systems** in `core-api` profile.
+- **Do not add dependencies to `pyproject.toml`** outside the active capability set.
+
 ## Do Not Overbuild
 
-Use the minimum architecture the task actually requires.
+Use the minimum architecture the task actually requires — within the project''s capability boundaries.
 
-For a simple task, a thin action calling a structured agent is enough:
+For a simple task in an `llm-agent` profile, a thin action calling a structured agent is enough:
 
 ```text
 Endpoint -> UseCase -> Action -> Structured Agent
 ```
 
-For production tasks that need auditability, long-running jobs, or conflict checks, use the full workflow:
+For production tasks in a `workflow-agent` or `full` profile, use the full workflow:
 
 ```text
 Endpoint -> UseCase -> Action -> LangGraph Workflow -> Nodes / Tools / Agents
 ```
 
-Only add the production workflow when the task involves:
+Only add the production workflow when the task involves AND the `langgraph` capability is enabled:
 
 - batch processing or long-running jobs
 - auditability or traceable decisions
@@ -44,50 +86,62 @@ Only add the production workflow when the task involves:
 - status or display APIs
 - coverage validation that catches missing or duplicate output
 
-| Task Type | Pattern | Ledger | Memory | Human Review | Status API |
-|---|---|:---:|:---:|:---:|:---:|
-| Simple Q&A | Endpoint → UseCase → Action → Agent | — | — | — | — |
-| One-step extraction | Endpoint → UseCase → Action → Structured Agent | maybe | — | — | — |
-| Batch classification | UseCase → Action → Workflow | yes | maybe | maybe | yes |
-| Auditable decision | Production Workflow | yes | yes | yes | yes |
-| Expensive repeated decision | Production Workflow + Memory | yes | yes | maybe | yes |
-| Repeated proof → safe rule | Production Workflow + Safe Rules | yes | yes | yes | yes |
-| Long-running background job | Process + Status + Display APIs | yes | maybe | maybe | yes |
+| Task Type | Pattern | Needs langgraph? | Ledger | Memory | Human Review | Status API |
+|---|---|:---:|:---:|:---:|:---:|:---:|
+| Simple Q&A | Endpoint -> UseCase -> Action -> Agent | No | — | — | — | — |
+| One-step extraction | Endpoint -> UseCase -> Action -> Structured Agent | No | maybe | — | — | — |
+| Batch classification | UseCase -> Action -> Workflow | Yes | yes | maybe | maybe | yes |
+| Auditable decision | Production Workflow | Yes | yes | yes | yes | yes |
+| Expensive repeated decision | Production Workflow + Memory | Yes | yes | yes | maybe | yes |
+| Repeated proof -> safe rule | Production Workflow + Safe Rules | Yes | yes | yes | yes | yes |
+| Long-running background job | Process + Status + Display APIs | Yes | yes | maybe | maybe | yes |
 
-Do not add ledger, approved memory, conflict checks, or human review unless the task type in this table says to.
+Do not add ledger, approved memory, conflict checks, or human review unless the task type in this table says to. Do not add LangGraph at all unless the `langgraph` capability is enabled.
 
 ## Core Workflow
 
-1. Inspect the existing repo shape before writing code:
-   - architecture, project-structure, guideline, README, rules, or planning docs if they exist
-   - `pyproject.toml`, lockfiles, test config, and app entrypoints
-   - `src/api/endpoints/v1/`
-   - `src/execution/usecases/`
-   - `src/execution/actions/`
-   - `src/agents/agent_manager/`
-   - `src/agents/prompts/`
-   - `src/agents/schemas/`
-   - `src/agents/tools/`
-   - `src/agents/workflows/`
-   - `src/providers/ai/`
-   - `src/config/`
-   - existing tests for the same feature or layer
+1. **Read the project profile before writing any code:**
+   - Inspect `pyproject.toml` for `[tool.alms]`.
+   - Note the `profile` and `capabilities` list.
+   - If `[tool.alms]` is absent, infer from existing files:
+     - `src/agents/workflows/` -> `workflow-agent` or `full`
+     - `src/providers/ai/` -> `llm-agent`
+     - `src/database/` -> `db-agent`
+     - else -> `core-api`
+   - Then inspect the existing repo shape:
+     - architecture, project-structure, guideline, README, rules, or planning docs if they exist
+     - `pyproject.toml`, lockfiles, test config, and app entrypoints
+     - `src/api/endpoints/v1/`
+     - `src/execution/usecases/`
+     - `src/execution/actions/`
+     - `src/config/`
+     - existing tests for the same feature or layer
+   - **Only inspect folders that match enabled capabilities:**
+     - `src/agents/agent_manager/` — only if `llm` is enabled
+     - `src/agents/prompts/` — only if `llm` is enabled
+     - `src/agents/schemas/` — only if `llm` is enabled
+     - `src/agents/tools/` — only if `llm` or `langgraph` is enabled
+     - `src/agents/workflows/` — only if `langgraph` is enabled
+     - `src/providers/ai/` — only if `llm` is enabled
+     - `src/database/` — only if `database` is enabled
+     - `src/observability/` — only if `observability` is enabled
 
-2. Choose the right workflow depth:
-   - For a small one-step agent, use a thin action around a structured-output agent.
-   - For production decisions, use a stateful workflow with a ledger, deterministic fast paths, retrieval or LLM reasoning, coverage validation, conflict checks, summary/reconciliation, and human review.
-   - For long-running work, expose `process`, `status`, and display-friendly result endpoints, and use background tasks or a queue instead of blocking the request.
+2. Choose the right workflow depth **within capability limits:**
+   - For `core-api`: use plain FastAPI + usecase/action. No agents, no AI.
+   - For `llm-agent` without `langgraph`: use a thin action around a structured-output agent.
+   - For `workflow-agent` or `full`: use stateful workflows with ledger, deterministic fast paths, retrieval or LLM reasoning, coverage validation, conflict checks, summary/reconciliation, and human review.
+   - For long-running work in any AI-capable profile: expose `process`, `status`, and display-friendly result endpoints, and use background tasks or a queue instead of blocking the request.
 
-3. Add features layer by layer:
+3. Add features layer by layer **only within enabled capabilities:**
    - Endpoint: validate HTTP input, inject the usecase, enqueue background work when needed, return `AppResponse` or the repo response wrapper.
    - Usecase: own job creation, status transitions, orchestration, retries, batching, dashboard/display payloads, and clean failure recording.
-   - Action: lazily build and cache the compiled workflow, adapt inputs, call `ainvoke`, and normalize the workflow result.
-   - Workflow: build `StateGraph`, add nodes, wire edges, compile only. Keep feature-sized workflows in `src/agents/workflows/<feature>/`.
-   - State: define durable state in `state.py`; include input, ledger, reports, outputs, final status, and errors.
-   - Nodes: run deterministic tools first, call structured agents only when needed, validate coverage, return partial state, and preserve audit evidence.
-   - Agents and schemas: keep Pydantic structured outputs in feature schema modules such as `src/agents/schemas/<feature>.py`; register them in `AgentManager`.
-   - Prompts: store system prompts as markdown files under `src/agents/prompts/agents/` and lazy-load them through `PromptManager`.
-   - Tools: keep retrieval, memory lookup, review persistence, and deterministic rule runners behind tool classes.
+   - Action: lazily build and cache the compiled workflow (langgraph only), adapt inputs, call `ainvoke`, and normalize the workflow result.
+   - Workflow: (langgraph only) build `StateGraph`, add nodes, wire edges, compile only. Keep feature-sized workflows in `src/agents/workflows/<feature>/`.
+   - State: (langgraph only) define durable state in `state.py`; include input, ledger, reports, outputs, final status, and errors.
+   - Nodes: (langgraph only) run deterministic tools first, call structured agents only when needed, validate coverage, return partial state, and preserve audit evidence.
+   - Agents and schemas: (llm only) keep Pydantic structured outputs in feature schema modules such as `src/agents/schemas/<feature>.py`; register them in `AgentManager`.
+   - Prompts: (llm only) store system prompts as markdown files under `src/agents/prompts/agents/` and lazy-load them through `PromptManager`.
+   - Tools: (llm or langgraph) keep retrieval, memory lookup, review persistence, and deterministic rule runners behind tool classes.
 
 4. Preserve ALMS dependency flow:
    - API can depend on Execution.
@@ -97,6 +151,8 @@ Do not add ledger, approved memory, conflict checks, or human review unless the 
    - Do not make endpoints call LangGraph, model loaders, prompt files, tools, or repositories directly.
 
 ## Production Reliability Ladder
+
+(Requires `langgraph` capability.)
 
 Use this production ALMS pattern when the output must be auditable, reviewable, or expensive to recompute:
 
@@ -129,7 +185,7 @@ Important guardrails:
 
 ## Naming Style
 
-Prefer the repo's explicit business names over generic abstractions:
+Prefer the repo''s explicit business names over generic abstractions:
 
 - Endpoint file: `<feature>.py` or `process_<thing>.py`
 - Endpoint route group: `/api/v1/<feature>/...`
@@ -146,6 +202,8 @@ Prefer the repo's explicit business names over generic abstractions:
 - Tool class: `<Thing>Tool`, `<Thing>MemoryTool`, `<Thing>QueueTool`, `<Thing>RuleRunner`
 
 ## LangGraph Defaults
+
+(Requires `langgraph` capability.)
 
 Use `StateGraph` when the workflow has explicit state, routing, retries, fan-out, deterministic checks, human review, or multiple LLM steps. Use simple structured-output calls only for small single-agent routes.
 
@@ -167,6 +225,8 @@ Compile workflows in `build.py`, but invoke them from action classes. Cache the 
 Keep graph-level retry small for LLM calls. Put business retries in usecases or node helpers where failed outputs can be normalized into held/review state.
 
 ## LangChain Defaults
+
+(Requires `llm` capability.)
 
 Use a `LangchainModelLoader` or `get_llm()` provider helper to centralize model configuration from `settings`. Keep provider details out of node functions.
 
@@ -231,7 +291,7 @@ When working in a repo that has not migrated, keep the layer-first structure. Do
 
 ## Run And Verify
 
-Prefer the repo's existing commands. Common ALMS commands are:
+Prefer the repo''s existing commands. Common ALMS commands are:
 
 ```bash
 uv sync
@@ -241,6 +301,57 @@ uv run pytest src/tests/v1 -v
 uv run ruff check src
 uv run ruff format src
 ```
+
+### Profile-specific verification
+
+For `core-api` — the app must start without any optional dependencies:
+
+```bash
+uv sync
+uv run pytest src/tests
+python -c "import src.api.main; print('core import ok')"
+```
+
+Core profile must NOT require: langchain, langgraph, sqlalchemy, asyncpg, redis, opentelemetry, prometheus-client, scalar-fastapi.
+
+For `llm-agent`:
+
+```bash
+uv sync --extra ai --extra docs
+uv run pytest src/tests
+```
+
+For `workflow-agent`:
+
+```bash
+uv sync --extra ai --extra workflow --extra docs
+uv run pytest src/tests
+```
+
+For `db-agent`:
+
+```bash
+uv sync --extra db
+uv run pytest src/tests
+```
+
+For `observable`:
+
+```bash
+uv sync --extra observability
+uv run pytest src/tests
+```
+
+For `full` (current v0.3 behaviour):
+
+```bash
+uv sync --extra full
+uv run pytest src/tests
+```
+
+### Production agent workflow verification
+
+(Requires `langgraph` capability.)
 
 For production agent workflows, also verify:
 
@@ -266,6 +377,9 @@ List each file and the purpose of the change.
 ## Architecture Impact
 How the change affects ALMS boundaries:
 API, UseCase, Action, Agent/Workflow, Provider, Database, Observability, Config.
+
+## Profile Impact
+Which capabilities were used, and whether any capability boundaries were crossed or needed.
 
 ## Verification
 Commands run, for example:
