@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.4.0)
+## 0.4.0 — 2026-06-28
 
 - Skill is now profile-aware: reads `[tool.alms]` from `pyproject.toml` before generating code.
 - Added "Profile / Capability Contract" section in SKILL.md with capability rules.

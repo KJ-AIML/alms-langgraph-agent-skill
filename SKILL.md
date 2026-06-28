@@ -228,7 +228,7 @@ Keep graph-level retry small for LLM calls. Put business retries in usecases or 
 
 (Requires `llm` capability.)
 
-Use a `LangchainModelLoader` or `get_llm()` provider helper to centralize model configuration from `settings`. Keep provider details out of node functions.
+Use the stable provider boundary: `get_ai_provider().get_chat_model(tier="basic"|"reasoning")`. Some generated scaffolds expose a `get_llm()` convenience helper — use it only if it already exists in the project; do not assume it is present in every repo. Keep provider details out of node functions.
 
 Use `AgentManager` to lazy-load and cache structured-output agents:
 
@@ -362,6 +362,39 @@ For production agent workflows, also verify:
 - Human review paths persist enough evidence.
 - A second run can hit approved memory or code rules only when exact coverage exists.
 - Status/display APIs show `completed`, `human_review`, and `failed` clearly.
+
+### Test Patterns
+
+Generated ALMS projects use `httpx` with `ASGITransport` for async testing (httpx 1.x compatible). Before adding new tests, inspect the existing `tests/conftest.py` for the project's test fixture pattern.
+
+**Preferred fixture** (generated scaffold pattern):
+
+```python
+from httpx import ASGITransport, AsyncClient
+
+@pytest.fixture
+async def client():
+    from src.api.main import app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield client
+```
+
+**Avoid** (deprecated httpx API):
+
+```python
+# DO NOT USE — incompatible with httpx 1.x
+AsyncClient(app=app, base_url="http://test")
+```
+
+### Canonical Generated Routes
+
+Generated scaffold sample routes (the contract for new projects):
+
+- `/api/v1/agent/sample` — Agent execution endpoint
+- `/api/v1/di/sample` — Dependency injection demo
+
+The reference implementation in the ALMS repo may show different route names (`/api/v1/agent/execute`, `/api/v1/sample_di/sample-di`). When working in a generated project, inspect the current `src/api/endpoints/v1/routers.py` before adding or renaming endpoints.
 
 ## Final Response Format
 

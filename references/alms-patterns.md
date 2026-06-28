@@ -423,7 +423,8 @@ class AgentManager:
     @property
     def model(self) -> Any:
         if self._model is None:
-            self._model = get_llm("reasoning")
+            from src.providers.ai.factory import get_ai_provider
+            self._model = get_ai_provider().get_chat_model(tier="reasoning")
         return self._model
 
     def get_agent(self, name: str) -> Any:
@@ -602,7 +603,7 @@ reasoning_model = get_ai_provider().get_chat_model("reasoning")
 
 `LangchainModelLoader` implements `AIModelProvider` and supports `get_chat_model(tier)` — `"basic"` calls `init_model_openai_basic`, `"reasoning"` calls `init_model_openai_reasoning`. Call `get_ai_provider()` in lazy-loaded properties so non-AI routes do not depend on AI setup.
 
-If the repo exposes a `get_llm("reasoning")` helper that wraps the same loader, prefer it for backward compatibility with existing nodes.
+If the repo exposes a `get_llm("reasoning")` convenience helper (generated scaffold only), it wraps the same loader. Prefer `get_ai_provider().get_chat_model(tier=...)` for new code; keep `get_llm()` only for backward compatibility with existing nodes.
 
 > **Google / Anthropic providers are deferred.** The `MODEL_PROVIDER` setting is the switch point in `factory.py`, but only `openai` is implemented. Do not tell the user that Google or Anthropic providers exist unless the repo already has them.
 
